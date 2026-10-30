@@ -23,13 +23,6 @@ if ! grep -q "android.permission.INTERNET" "$MANIFEST"; then
 fi
 sed -i 's#android:label="[^"]*"#android:label="D. Face Lab"#' "$MANIFEST"
 
-# Launcher icons.
-for d in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
-  if [ -f "tool/android/icons/ic_launcher_$d.png" ]; then
-    cp "tool/android/icons/ic_launcher_$d.png" "android/app/src/main/res/mipmap-$d/ic_launcher.png"
-  fi
-done
-
 if [[ "$(uname)" == "Darwin" ]]; then
   PLIST=ios/Runner/Info.plist
   /usr/libexec/PlistBuddy -c "Add :NSPhotoLibraryUsageDescription string 'Per scegliere foto e video da elaborare.'" "$PLIST" || true
@@ -38,3 +31,6 @@ if [[ "$(uname)" == "Darwin" ]]; then
 fi
 
 flutter pub get
+
+# Brand icon (dom / famiglia D.)
+dart run flutter_launcher_icons

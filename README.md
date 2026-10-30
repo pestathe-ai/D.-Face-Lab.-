@@ -19,6 +19,7 @@ le immagini non vengono inviate a nessun server.
 - Video: fino a 10 secondi (i video più lunghi vengono tagliati), massimo 30 fotogrammi al secondo,
   lato lungo ridotto a 1280 px; l'audio originale viene mantenuto.
 - Download dei modelli con ripresa se si interrompe.
+- Icona e firma del marchio Dom Studio (famiglia D.).
 
 ## Limiti noti
 

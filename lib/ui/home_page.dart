@@ -180,7 +180,7 @@ class _HomePageState extends State<HomePage> {
       showAboutDialog(
         context: context,
         applicationName: 'D. Face Lab',
-        applicationVersion: '0.1.0',
+        applicationVersion: '0.1.1',
         children: const [
           Text('Scambio volti sul telefono con i modelli SCRFD, ArcFace e inswapper '
               '(InsightFace) distribuiti dal progetto FaceFusion. Il modello inswapper è '
@@ -196,7 +196,10 @@ class _HomePageState extends State<HomePage> {
     final canRun = !_busy && _source != null && _targetPath != null;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('D. Face Lab'),
+        title: const Text(
+          'D. Face Lab',
+          style: TextStyle(fontFamily: 'Sora', fontVariations: [FontVariation('wght', 800)]),
+        ),
         actions: [
           PopupMenuButton<String>(
             onSelected: _menu,
@@ -321,6 +324,17 @@ class _HomePageState extends State<HomePage> {
               const SizedBox(height: 16),
               _ResultCard(result: _result!, saved: _saved, onSave: _save),
             ],
+            const SizedBox(height: 32),
+            Center(
+              child: Text(
+                'un\'app Dom Studio',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  fontFamily: 'Sora',
+                  fontVariations: const [FontVariation('wght', 600)],
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
           ],
         ),
       ),
