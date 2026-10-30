@@ -97,9 +97,11 @@ class _HomePageState extends State<HomePage> {
       file = await _picker.pickVideo(source: ImageSource.gallery);
     }
     if (file == null) return;
+    final path = file.path;
+    final name = file.name;
     setState(() {
-      _targetPath = file.path;
-      _targetName = file.name;
+      _targetPath = path;
+      _targetName = name;
       _result = null;
     });
   }
