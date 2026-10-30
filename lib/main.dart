@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import 'core/pipeline.dart';
 import 'services/model_manager.dart';
 import 'services/swap_engine.dart';
 import 'ui/consent_page.dart';
@@ -62,10 +63,10 @@ class _AppRootState extends State<AppRoot> {
     setState(() {
       if (!_consentFile(m).existsSync()) {
         _phase = _Phase.consent;
-      } else if (!m.allReady) {
+      } else if (!m.readyFor(m.preferredModel)) {
         _phase = _Phase.models;
       } else {
-        _engine ??= SwapEngine(m);
+        _engine ??= SwapEngine(m, m.preferredModel);
         _phase = _Phase.home;
       }
     });
@@ -73,6 +74,15 @@ class _AppRootState extends State<AppRoot> {
 
   Future<void> _accept() async {
     await _consentFile(_manager!).writeAsString(DateTime.now().toIso8601String());
+    _route();
+  }
+
+  Future<void> _selectModel(SwapModel model) async {
+    final m = _manager!;
+    if (model == m.preferredModel) return;
+    await _engine?.dispose();
+    _engine = null;
+    m.preferredModel = model;
     _route();
   }
 
@@ -97,9 +107,15 @@ class _AppRootState extends State<AppRoot> {
       case _Phase.consent:
         return ConsentPage(onAccept: _accept);
       case _Phase.models:
-        return ModelsPage(manager: _manager!, onReady: _route);
+        return ModelsPage(
+            key: ValueKey(_manager!.preferredModel), manager: _manager!, onReady: _route, onSelectModel: _selectModel);
       case _Phase.home:
-        return HomePage(engine: _engine!, onDeleteModels: _deleteModels);
+        return HomePage(
+          key: ValueKey(_engine!.model),
+          engine: _engine!,
+          onDeleteModels: _deleteModels,
+          onSelectModel: _selectModel,
+        );
     }
   }
 }

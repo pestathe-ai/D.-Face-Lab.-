@@ -11,6 +11,7 @@ import 'package:d_face_lab/core/mask.dart';
 import 'package:d_face_lab/core/pipeline.dart';
 import 'package:d_face_lab/core/rgb_image.dart';
 import 'package:d_face_lab/core/scrfd.dart';
+import 'package:d_face_lab/core/warp.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class Fixtures {
@@ -19,9 +20,9 @@ class Fixtures {
 
   Fixtures._(this.manifest, this.bin);
 
-  factory Fixtures.load() {
-    final manifest = jsonDecode(File('test/fixtures/replay.json').readAsStringSync()) as Map<String, dynamic>;
-    final bytes = File('test/fixtures/replay.bin').readAsBytesSync();
+  factory Fixtures.load([String name = 'replay']) {
+    final manifest = jsonDecode(File('test/fixtures/$name.json').readAsStringSync()) as Map<String, dynamic>;
+    final bytes = File('test/fixtures/$name.bin').readAsBytesSync();
     return Fixtures._(manifest, ByteData.sublistView(bytes));
   }
 
@@ -58,6 +59,8 @@ Diff diff(List<num> a, List<num> b) {
 
 class ReplayModels implements FaceModels {
   final Fixtures fx;
+  Fixtures? hyper;
+  int hyperCalls = 0;
   final List<String> detectOrder = ['source', 'target'];
   int detectCalls = 0;
   int swapCalls = 0;
@@ -88,6 +91,30 @@ class ReplayModels implements FaceModels {
     log.add('embed input $d');
     expect(d.max, lessThan(1e-3), reason: 'ArcFace input differs: $d');
     return fx.floats('embed.out');
+  }
+
+  @override
+  Future<(List<double>, List<double>)> hyperSwap(Float32List target, Float32List source) async {
+    final h = hyper!;
+    hyperCalls++;
+    final mine = [for (var i = 0; i < target.length; i += 97) target[i]];
+    final d = diff(mine, h.floats('hyper.input.samples'));
+    log.add('hyperswap input $d');
+    expect(d.max, lessThan(1e-3), reason: 'HyperSwap input differs: $d');
+    var sum = 0.0;
+    for (final v in target) {
+      sum += v;
+    }
+    final expected = (h.manifest['hyper.input.sum'] as num).toDouble();
+    expect((sum - expected).abs(), lessThan(1.0), reason: 'HyperSwap input sum');
+    final emb = fx.floats('embed.out');
+    var n = 0.0;
+    for (final v in emb) {
+      n += v * v;
+    }
+    n = math.sqrt(n);
+    expect(diff(source, [for (final v in emb) v / n]).max, lessThan(1e-6), reason: 'HyperSwap source vector');
+    return (h.floats('hyper.out'), h.floats('hyper.mask'));
   }
 
   @override
@@ -126,7 +153,7 @@ void main() {
   test('full pipeline reproduces the reference swap', () async {
     final fx = Fixtures.load();
     final models = ReplayModels(fx);
-    final pipeline = FacePipeline(models, detectSize: 320);
+    final pipeline = FacePipeline(models, model: SwapModel.inswapper, detectSize: 320);
 
     final source = loadPng('test/fixtures/source.png');
     final sourceFaces = await pipeline.detect(source);
@@ -153,6 +180,50 @@ void main() {
     print([...models.log, 'final image $d'].join('\n'));
     expect(d.max, lessThanOrEqualTo(3), reason: 'final image differs: $d');
     expect(d.mean, lessThan(0.01), reason: 'final image differs: $d');
+  });
+
+  test('HyperSwap path reproduces the reference swap', () async {
+    final fx = Fixtures.load();
+    final models = ReplayModels(fx)..hyper = Fixtures.load('hyper');
+    final pipeline = FacePipeline(models, model: SwapModel.hyperswap, detectSize: 320);
+    final target = loadPng('test/fixtures/target.png');
+    models.detectOrder
+      ..clear()
+      ..add('target');
+    final faces = await pipeline.detect(target);
+    final face = largestFace(faces)!;
+    final source = FacePipeline.sourceVector(SwapModel.hyperswap, fx.floats('embed.out'));
+    await pipeline.swapFace(target, face, source);
+    expect(models.hyperCalls, 1);
+    final expected = loadPng('test/fixtures/expected_hyper.png');
+    final d = diff(target.data, expected.data);
+    // ignore: avoid_print
+    print([...models.log, 'final hyper image $d'].join('\n'));
+    expect(d.max, lessThanOrEqualTo(3), reason: 'HyperSwap image differs: $d');
+    expect(d.mean, lessThan(0.01), reason: 'HyperSwap image differs: $d');
+  });
+
+  test('pixel boost split and merge are inverse', () {
+    final crop = Float32List(256 * 256 * 3);
+    for (var i = 0; i < crop.length; i++) {
+      crop[i] = (i * 7919 % 1000).toDouble();
+    }
+    final tiles = implodePixelBoost(crop, 128, 2);
+    expect(tiles.length, 4);
+    // Tile (by=1, bx=0) pixel (Y=3, X=5) = crop[7, 10].
+    expect(tiles[2][(3 * 128 + 5) * 3], crop[(7 * 256 + 10) * 3]);
+    expect(explodePixelBoost(tiles, 128, 2), crop);
+  });
+
+  test('averageEmbedding and normalize', () {
+    final avg = FacePipeline.averageEmbedding([
+      [1.0, 3.0],
+      [3.0, 5.0],
+    ]);
+    expect(avg, [2.0, 4.0]);
+    final n = FacePipeline.normalize([3.0, 4.0]);
+    expect(n[0], closeTo(0.6, 1e-6));
+    expect(n[1], closeTo(0.8, 1e-6));
   });
 
   test('selectFaces keeps only the largest face when asked', () {

@@ -6,29 +6,37 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../core/onnx_reader.dart';
+import '../core/pipeline.dart';
 
 class ModelSpec {
   final String label;
   final String fileName;
   final int bytes;
+  final String release;
 
-  const ModelSpec(this.label, this.fileName, this.bytes);
+  const ModelSpec(this.label, this.fileName, this.bytes, {this.release = 'models-3.0.0'});
 
-  String get url => '${ModelManager.baseUrl}$fileName';
+  String get url => '${ModelManager.baseUrl}$release/$fileName';
 }
 
 class DownloadCancelled implements Exception {
   const DownloadCancelled();
 }
 
-/// Downloads and stores the three ONNX models (from FaceFusion's public
-/// GitHub releases) in the app's private folder.
+/// Downloads and stores the ONNX models (from FaceFusion's public GitHub
+/// releases) in the app's private folder.
 class ModelManager {
-  static const baseUrl = 'https://github.com/facefusion/facefusion-assets/releases/download/models-3.0.0/';
+  static const baseUrl = 'https://github.com/facefusion/facefusion-assets/releases/download/';
   static const detector = ModelSpec('Rilevamento volti (SCRFD)', 'scrfd_2.5g.onnx', 3295067);
   static const recognizer = ModelSpec('Riconoscimento volto (ArcFace)', 'arcface_w600k_r50.onnx', 174388474);
-  static const swapper = ModelSpec('Scambio volti (inswapper 128)', 'inswapper_128.onnx', 555303150);
-  static const all = [detector, recognizer, swapper];
+  static const swapper = ModelSpec('Scambio volti classico (inswapper 128)', 'inswapper_128.onnx', 555303150);
+  static const hyperswap =
+      ModelSpec('Scambio volti HyperSwap (256)', 'hyperswap_1c_256.onnx', 402742682, release: 'models-3.3.0');
+
+  static List<ModelSpec> requiredFor(SwapModel model) =>
+      [detector, recognizer, model == SwapModel.hyperswap ? hyperswap : swapper];
+
+  static ModelSpec swapperFor(SwapModel model) => model == SwapModel.hyperswap ? hyperswap : swapper;
   static const _emapFile = 'inswapper_emap.bin';
   static const _emapBytes = 512 * 512 * 4;
 
@@ -50,13 +58,30 @@ class ModelManager {
     return f.existsSync() && f.lengthSync() == spec.bytes;
   }
 
-  bool get allReady => all.every(isReady);
+  File get _modelPref => File('${dir.parent.path}/swap_model');
 
-  int get totalBytes => all.fold(0, (a, s) => a + s.bytes);
+  /// The swap engine chosen by the user (HyperSwap by default).
+  SwapModel get preferredModel {
+    try {
+      if (_modelPref.existsSync() && _modelPref.readAsStringSync().trim() == 'inswapper') {
+        return SwapModel.inswapper;
+      }
+    } catch (_) {}
+    return SwapModel.hyperswap;
+  }
 
-  int downloadedBytes() {
+  set preferredModel(SwapModel model) => _modelPref.writeAsStringSync(model.name);
+
+  bool readyFor(SwapModel model) => requiredFor(model).every(isReady);
+
+  int totalBytes(SwapModel model) => requiredFor(model).fold(0, (a, s) => a + s.bytes);
+
+  /// Bytes still to download for [model].
+  int missingBytes(SwapModel model) => totalBytes(model) - downloadedBytes(model);
+
+  int downloadedBytes(SwapModel model) {
     var sum = 0;
-    for (final s in all) {
+    for (final s in requiredFor(model)) {
       if (isReady(s)) {
         sum += s.bytes;
         continue;
@@ -69,16 +94,18 @@ class ModelManager {
 
   /// Downloads every missing model, resuming partial files.
   /// [onProgress] gets (bytes done, total bytes).
-  Future<void> downloadAll({
+  Future<void> downloadFor(
+    SwapModel model, {
     required void Function(int done, int total) onProgress,
     required bool Function() isCancelled,
   }) async {
-    final total = totalBytes;
-    for (final spec in all) {
+    final specs = requiredFor(model);
+    final total = totalBytes(model);
+    for (final spec in specs) {
       if (isReady(spec)) continue;
       await _download(spec, isCancelled, (specDone) {
         var done = 0;
-        for (final s in all) {
+        for (final s in specs) {
           if (s == spec) {
             done += specDone;
           } else if (isReady(s)) {

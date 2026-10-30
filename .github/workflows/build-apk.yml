@@ -62,7 +62,7 @@ jobs:
             echo "::error title=tests::$(cat err.txt)"
             exit 1
           fi
-          grep -E '^(detect|embed|swap|final image)' test.log | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"} {print}' > diff.txt || true
+          grep -E '^(detect|embed|swap|final|hyperswap)' test.log | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"} {print}' > diff.txt || true
           echo "::notice title=pipeline replay::$(cat diff.txt)"
 
       - name: FFmpeg commands check
@@ -84,8 +84,8 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          BASE=https://github.com/facefusion/facefusion-assets/releases/download/models-3.0.0
-          for pair in scrfd_2.5g.onnx:3295067 arcface_w600k_r50.onnx:174388474 inswapper_128.onnx:555303150; do
+          BASE=https://github.com/facefusion/facefusion-assets/releases/download
+          for pair in models-3.0.0/scrfd_2.5g.onnx:3295067 models-3.0.0/arcface_w600k_r50.onnx:174388474 models-3.0.0/inswapper_128.onnx:555303150 models-3.3.0/hyperswap_1c_256.onnx:402742682; do
             f=${pair%%:*}; want=${pair##*:}
             got=$(curl -sIL "$BASE/$f" | grep -i '^content-length' | tail -1 | tr -dc '0-9')
             if [ "$got" != "$want" ]; then

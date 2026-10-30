@@ -27,10 +27,10 @@ class ProcessingCancelled implements Exception {
 }
 
 class SourceFace {
-  final Float32List latent;
+  final List<double> embedding;
   final Uint8List preview;
   final int facesFound;
-  const SourceFace(this.latent, this.preview, this.facesFound);
+  const SourceFace(this.embedding, this.preview, this.facesFound);
 }
 
 class SwapResult {
@@ -82,11 +82,20 @@ class SwapEngine {
   static const double maxVideoSeconds = 10;
 
   final ModelManager manager;
+  final SwapModel model;
   final OrtFaceModels _models;
-  late final FacePipeline _pipeline = FacePipeline(_models);
+  late final FacePipeline _pipeline = FacePipeline(_models, model: model);
   Float32List? _emap;
 
-  SwapEngine(this.manager) : _models = OrtFaceModels(manager);
+  SwapEngine(this.manager, this.model) : _models = OrtFaceModels(manager);
+
+  /// inswapper photos run "pixel boosted" (4 passes at 256 px): sharper but slower.
+  int get _photoBoost => model == SwapModel.inswapper ? 2 : 1;
+
+  Future<Float32List> _sourceVector(SourceFace source) async {
+    if (model == SwapModel.inswapper) _emap ??= await manager.loadEmap();
+    return FacePipeline.sourceVector(model, source.embedding, emap: _emap);
+  }
 
   Future<Directory> _workDir() async {
     final tmp = await getTemporaryDirectory();
@@ -107,20 +116,18 @@ class SwapEngine {
     progress('Analizzo il volto…', null);
     final embedding = await _pipeline.embedding(image, face);
     await _models.releaseRecognizer();
-    progress('Preparo il modello di scambio…', null);
-    _emap ??= await manager.loadEmap();
-    final latent = FacePipeline.latentFrom(embedding, _emap!);
     final preview = await compute(_previewPng, (image, face.box));
-    return SourceFace(latent, preview, faces.length);
+    return SourceFace(embedding, preview, faces.length);
   }
 
   Future<SwapResult> swapPhoto(String path, SourceFace source, FaceSelection selection, ProgressCallback progress) async {
     progress('Leggo la foto…', null);
     final image = await _decodeFile(path);
     progress('Carico il modello (la prima volta richiede qualche secondo)…', null);
-    await _models.warmUpSwapper();
+    final vector = await _sourceVector(source);
+    await _models.warmUpSwapper(model);
     progress('Sostituisco i volti…', null);
-    final count = await _pipeline.swapImage(image, source.latent, selection);
+    final count = await _pipeline.swapImage(image, vector, selection, boost: _photoBoost);
     if (count == 0) {
       throw const UserFacingError('Nessun volto trovato nella foto di destinazione.');
     }
@@ -173,7 +180,8 @@ class SwapEngine {
       if (files.isEmpty) throw const UserFacingError('Il video non contiene fotogrammi leggibili.');
 
       progress('Carico il modello (la prima volta richiede qualche secondo)…', 0);
-      await _models.warmUpSwapper();
+      final vector = await _sourceVector(source);
+      await _models.warmUpSwapper(model);
 
       var withFaces = 0;
       var swapped = 0;
@@ -184,7 +192,7 @@ class SwapEngine {
         progress('Fotogramma ${i + 1} di ${files.length}', i / files.length);
         final framePath = files[i].path;
         final image = await _decodeFile(framePath);
-        final count = await _pipeline.swapImage(image, source.latent, selection);
+        final count = await _pipeline.swapImage(image, vector, selection);
         if (count > 0) {
           withFaces++;
           swapped += count;

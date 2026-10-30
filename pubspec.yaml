@@ -1,7 +1,7 @@
 name: d_face_lab
 description: "D. Face Lab: scambio volti in foto e video, direttamente sul telefono."
 publish_to: 'none'
-version: 0.1.1+2
+version: 0.2.0+3
 
 environment:
   sdk: ">=3.5.0 <4.0.0"

@@ -11,6 +11,15 @@ le immagini non vengono inviate a nessun server.
 3. **Dove metterlo**: scegli una foto o un video dalla galleria.
 4. Premi **Avvia**, poi **Salva in galleria**.
 
+## Novità v0.2
+
+- Nuovo motore **HyperSwap** (FaceFusion, 256 px), predefinito: il volto risultante somiglia di più alla persona
+  sorgente e conserva più dettagli. Usa anche la maschera del volto prodotta dal modello per bordi più puliti.
+- Il motore **Classico** (inswapper) resta disponibile dal menu; sulle foto ora lavora in 4 passaggi a 256 px
+  ("pixel boost" di FaceFusion), più nitido ma più lento.
+- Si scaricano solo i modelli del motore scelto.
+- Provato e scartato: il "migliora volto" GFPGAN rende più nitido ma riduce la somiglianza.
+
 ## Cosa fa la v0.1
 
 - Rilevamento volti (SCRFD 2.5g), riconoscimento (ArcFace w600k r50) e scambio (inswapper 128),
@@ -23,8 +32,8 @@ le immagini non vengono inviate a nessun server.
 
 ## Limiti noti
 
-- Qualità: il modello lavora a 128×128 pixel, quindi su volti grandi il risultato è un po' morbido
-  (FaceFusion su PC aggiunge un "migliora volto" che qui non c'è ancora).
+- Il motore cambia il volto interno (occhi, naso, bocca, pelle) ma non capelli, orecchie e forma della testa:
+  scegli una destinazione con acconciatura e forma del viso simili per un risultato più credibile.
 - Velocità: indicativamente da mezzo secondo a qualche secondo per volto a seconda del telefono;
   un video di 10 secondi può richiedere diversi minuti. Tieni l'app aperta durante l'elaborazione.
 - Memoria: servono circa 1–1,5 GB di RAM libera; su telefoni con poca memoria l'app potrebbe chiudersi.
@@ -40,7 +49,7 @@ un'immagine modificata.
 
 - Codice dell'app: MIT.
 - Modelli scaricati da [facefusion-assets](https://github.com/facefusion/facefusion-assets):
-  inswapper 128 di InsightFace è **solo per uso non commerciale**.
+  HyperSwap (FaceFusion, ResearchRAIL) e inswapper 128 (InsightFace) sono **solo per uso non commerciale**.
 
 ## Sviluppo
 

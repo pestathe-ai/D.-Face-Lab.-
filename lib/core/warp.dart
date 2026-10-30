@@ -66,3 +66,65 @@ Float32List chwUnitToHwc(List<double> chw, int size) {
   }
   return out;
 }
+
+/// Planar CHW tensor in -1..1 -> interleaved RGB floats 0..255 (clipped).
+Float32List chwSignedToHwc(List<double> chw, int size) {
+  final plane = size * size;
+  final out = Float32List(plane * 3);
+  for (var i = 0; i < plane; i++) {
+    for (var c = 0; c < 3; c++) {
+      var v = chw[c * plane + i] * 0.5 + 0.5;
+      if (v < 0) v = 0;
+      if (v > 1) v = 1;
+      out[i * 3 + c] = v * 255;
+    }
+  }
+  return out;
+}
+
+/// FaceFusion "pixel boost": splits an interleaved RGB crop of
+/// (tile*boost)^2 pixels into boost^2 tiles of tile^2 pixels, each taking
+/// every boost-th pixel. Tile (by, bx) holds crop[Y*boost+by, X*boost+bx].
+List<Float32List> implodePixelBoost(Float32List crop, int tile, int boost) {
+  if (boost == 1) return [crop];
+  final size = tile * boost;
+  final tiles = <Float32List>[];
+  for (var by = 0; by < boost; by++) {
+    for (var bx = 0; bx < boost; bx++) {
+      final t = Float32List(tile * tile * 3);
+      for (var y = 0; y < tile; y++) {
+        for (var x = 0; x < tile; x++) {
+          final s = ((y * boost + by) * size + (x * boost + bx)) * 3;
+          final d = (y * tile + x) * 3;
+          t[d] = crop[s];
+          t[d + 1] = crop[s + 1];
+          t[d + 2] = crop[s + 2];
+        }
+      }
+      tiles.add(t);
+    }
+  }
+  return tiles;
+}
+
+/// Inverse of [implodePixelBoost].
+Float32List explodePixelBoost(List<Float32List> tiles, int tile, int boost) {
+  if (boost == 1) return tiles.first;
+  final size = tile * boost;
+  final out = Float32List(size * size * 3);
+  for (var by = 0; by < boost; by++) {
+    for (var bx = 0; bx < boost; bx++) {
+      final t = tiles[by * boost + bx];
+      for (var y = 0; y < tile; y++) {
+        for (var x = 0; x < tile; x++) {
+          final d = ((y * boost + by) * size + (x * boost + bx)) * 3;
+          final s = (y * tile + x) * 3;
+          out[d] = t[s];
+          out[d + 1] = t[s + 1];
+          out[d + 2] = t[s + 2];
+        }
+      }
+    }
+  }
+  return out;
+}

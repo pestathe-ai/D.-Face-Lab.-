@@ -12,6 +12,7 @@ class OrtFaceModels implements FaceModels {
   OrtSession? _detector;
   OrtSession? _recognizer;
   OrtSession? _swapper;
+  OrtSession? _hyper;
 
   OrtFaceModels(this.manager);
 
@@ -26,9 +27,16 @@ class OrtFaceModels implements FaceModels {
   Future<OrtSession> get _det async => _detector ??= await _open(ModelManager.detector);
   Future<OrtSession> get _rec async => _recognizer ??= await _open(ModelManager.recognizer);
   Future<OrtSession> get _swp async => _swapper ??= await _open(ModelManager.swapper);
+  Future<OrtSession> get _hyp async => _hyper ??= await _open(ModelManager.hyperswap);
 
   Future<void> warmUpDetector() async => _det;
-  Future<void> warmUpSwapper() async => _swp;
+  Future<void> warmUpSwapper(SwapModel model) async {
+    if (model == SwapModel.hyperswap) {
+      await _hyp;
+    } else {
+      await _swp;
+    }
+  }
 
   /// Frees the recognizer (only needed when choosing a new source face).
   Future<void> releaseRecognizer() async {
@@ -38,10 +46,10 @@ class OrtFaceModels implements FaceModels {
   }
 
   Future<void> dispose() async {
-    for (final s in [_detector, _recognizer, _swapper]) {
+    for (final s in [_detector, _recognizer, _swapper, _hyper]) {
       await s?.close();
     }
-    _detector = _recognizer = _swapper = null;
+    _detector = _recognizer = _swapper = _hyper = null;
   }
 
   static List<double> _floats(List<dynamic> values) {
@@ -103,5 +111,17 @@ class OrtFaceModels implements FaceModels {
       'source': (latent, [1, latent.length]),
     });
     return out[s.outputNames.first]!;
+  }
+
+  @override
+  Future<(List<double>, List<double>)> hyperSwap(Float32List target, Float32List source) async {
+    final s = await _hyp;
+    final out = await _run(s, {
+      'target': (target, [1, 3, 256, 256]),
+      'source': (source, [1, source.length]),
+    });
+    final image = out['output'] ?? out[s.outputNames.first]!;
+    final mask = out['mask'] ?? (s.outputNames.length > 1 ? out[s.outputNames[1]]! : List<double>.filled(256 * 256, 1));
+    return (image, mask);
   }
 }

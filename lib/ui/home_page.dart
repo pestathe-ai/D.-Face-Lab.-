@@ -13,8 +13,9 @@ enum _TargetKind { photo, video }
 class HomePage extends StatefulWidget {
   final SwapEngine engine;
   final Future<void> Function() onDeleteModels;
+  final Future<void> Function(SwapModel) onSelectModel;
 
-  const HomePage({super.key, required this.engine, required this.onDeleteModels});
+  const HomePage({super.key, required this.engine, required this.onDeleteModels, required this.onSelectModel});
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -152,7 +153,27 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _menu(String value) async {
-    if (value == 'rules') {
+    if (value == 'engine') {
+      final current = widget.engine.model;
+      final chosen = await showDialog<SwapModel>(
+        context: context,
+        builder: (c) => SimpleDialog(
+          title: const Text('Motore di scambio'),
+          children: [
+            for (final m in SwapModel.values)
+              ListTile(
+                leading: Icon(m == current ? Icons.radio_button_checked : Icons.radio_button_unchecked),
+                title: Text(m == SwapModel.hyperswap ? 'HyperSwap (consigliato)' : 'Classico'),
+                subtitle: Text(m == SwapModel.hyperswap
+                    ? 'Più somigliante e dettagliato. Lavora a 256 pixel.'
+                    : 'inswapper di InsightFace. Sulle foto lavora in 4 passaggi per più nitidezza (più lento).'),
+                onTap: () => Navigator.pop(c, m),
+              ),
+          ],
+        ),
+      );
+      if (chosen != null && chosen != current) await widget.onSelectModel(chosen);
+    } else if (value == 'rules') {
       await showDialog<void>(
         context: context,
         builder: (c) => AlertDialog(
@@ -180,11 +201,11 @@ class _HomePageState extends State<HomePage> {
       showAboutDialog(
         context: context,
         applicationName: 'D. Face Lab',
-        applicationVersion: '0.1.1',
+        applicationVersion: '0.2.0',
         children: const [
-          Text('Scambio volti sul telefono con i modelli SCRFD, ArcFace e inswapper '
-              '(InsightFace) distribuiti dal progetto FaceFusion. Il modello inswapper è '
-              'concesso solo per uso personale e non commerciale.'),
+          Text('Scambio volti sul telefono con i modelli SCRFD, ArcFace, HyperSwap (FaceFusion) e '
+              'inswapper (InsightFace) distribuiti dal progetto FaceFusion. I modelli di scambio sono '
+              'concessi solo per uso personale e non commerciale.'),
         ],
       );
     }
@@ -204,6 +225,7 @@ class _HomePageState extends State<HomePage> {
           PopupMenuButton<String>(
             onSelected: _menu,
             itemBuilder: (_) => const [
+              PopupMenuItem(value: 'engine', child: Text('Motore di scambio')),
               PopupMenuItem(value: 'rules', child: Text('Regole d\'uso')),
               PopupMenuItem(value: 'delete', child: Text('Elimina modelli')),
               PopupMenuItem(value: 'about', child: Text('Informazioni')),
@@ -227,7 +249,9 @@ class _HomePageState extends State<HomePage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          _source == null ? 'Scegli una foto con il volto ben visibile.' : 'Volto pronto.',
+                          _source == null
+                              ? 'Per una maggiore somiglianza: foto frontale, nitida, ben illuminata, senza occhiali da sole.'
+                              : 'Volto pronto.',
                           style: theme.textTheme.bodyMedium,
                         ),
                         const SizedBox(height: 8),
