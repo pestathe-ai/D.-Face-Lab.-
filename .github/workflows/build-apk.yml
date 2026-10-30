@@ -1,0 +1,155 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Setup platforms
+        shell: bash
+        run: |
+          set -o pipefail
+          chmod +x tool/setup_platforms.sh
+          if ! ./tool/setup_platforms.sh 2>&1 | tee setup.log; then
+            grep -n -i -E 'error|failed|exception|because|version solving' setup.log | tail -40 \
+              | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"} {print}' > err.txt
+            echo "::error title=setup::$(cat err.txt)"
+            exit 1
+          fi
+
+      - name: Analyze
+        shell: bash
+        run: |
+          set -o pipefail
+          if ! flutter analyze --no-fatal-infos --no-fatal-warnings 2>&1 | tee analyze.log; then
+            grep -n -E 'error •|error -' analyze.log | tail -40 \
+              | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"} {print}' > err.txt
+            echo "::error title=analyze::$(cat err.txt)"
+            exit 1
+          fi
+          W=$(grep -c -E 'warning •|warning -' analyze.log || true)
+          if [ "$W" != "0" ]; then
+            grep -E 'warning •|warning -' analyze.log | head -20 | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"} {print}' > warn.txt
+            echo "::warning title=analyze warnings::$(cat warn.txt)"
+          fi
+
+      - name: Unit tests
+        shell: bash
+        run: |
+          set -o pipefail
+          if ! flutter test --reporter expanded 2>&1 | tee test.log; then
+            grep -n -i -E 'error|failed|exception|Expected|Actual|Which|reason|\.dart [0-9]+:[0-9]+|\.dart:[0-9]+' test.log | tail -40 \
+              | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"} {print}' > err.txt
+            echo "::error title=tests::$(cat err.txt)"
+            exit 1
+          fi
+          grep -E '^(detect|embed|swap|final image)' test.log | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"} {print}' > diff.txt || true
+          echo "::notice title=pipeline replay::$(cat diff.txt)"
+
+      - name: FFmpeg commands check
+        shell: bash
+        run: |
+          set -o pipefail
+          sudo apt-get update -qq >/dev/null && sudo apt-get install -y -qq ffmpeg >/dev/null
+          mkdir -p ci/frames
+          ffmpeg -v error -f lavfi -i testsrc2=size=1921x1081:rate=30000/1001 -f lavfi -i sine=f=440 -t 12 \
+            -c:v libx264 -pix_fmt yuv420p -c:a aac ci/in.mp4
+          DFL_FFMPEG_JSON=ci/cmds.json flutter test test/core_test.dart --plain-name "writes FFmpeg commands" > /dev/null
+          if ! python3 tool/ci/ffmpeg_check.py ci/cmds.json 2>&1 | tee ff.log; then
+            tail -20 ff.log | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"} {print}' > err.txt
+            echo "::error title=ffmpeg::$(cat err.txt)"
+            exit 1
+          fi
+
+      - name: Check model downloads
+        shell: bash
+        run: |
+          set -o pipefail
+          BASE=https://github.com/facefusion/facefusion-assets/releases/download/models-3.0.0
+          for pair in scrfd_2.5g.onnx:3295067 arcface_w600k_r50.onnx:174388474 inswapper_128.onnx:555303150; do
+            f=${pair%%:*}; want=${pair##*:}
+            got=$(curl -sIL "$BASE/$f" | grep -i '^content-length' | tail -1 | tr -dc '0-9')
+            if [ "$got" != "$want" ]; then
+              echo "::error title=models::$f size $got, expected $want"
+              exit 1
+            fi
+          done
+
+      - name: Build APK
+        shell: bash
+        run: |
+          set -o pipefail
+          if ! flutter build apk --release --split-per-abi 2>&1 | tee build.log; then
+            grep -n -i -E 'error|what went wrong|failed|exception|\.dart [0-9]+:[0-9]+|\.kt:|e: ' build.log | tail -40 \
+              | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"} {print}' > err.txt
+            echo "::error title=build::$(cat err.txt)"
+            exit 1
+          fi
+          ls -la build/app/outputs/flutter-apk/
+
+      # The signing key never goes into the repository: it is generated once
+      # and kept in this repository's private Actions cache, so every build is
+      # signed with the same key and updates install over the old version.
+      - name: Restore signing key
+        id: signing-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.dfacelab-signing
+          key: dfacelab-signing-v1
+
+      - name: Create signing key (first build only)
+        if: steps.signing-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          mkdir -p ~/.dfacelab-signing
+          PASS=$(openssl rand -hex 16)
+          echo -n "$PASS" > ~/.dfacelab-signing/pass
+          keytool -genkeypair -keystore ~/.dfacelab-signing/app.jks -alias app -keyalg RSA -keysize 2048 \
+            -validity 10000 -dname "CN=D. Face Lab, C=IT" -storepass "$PASS" -keypass "$PASS"
+          echo "::notice title=signing::New signing key created (uninstall older builds once)."
+
+      - name: Sign APKs
+        shell: bash
+        run: |
+          set -o pipefail
+          KS=~/.dfacelab-signing/app.jks
+          KS_PASS=$(cat ~/.dfacelab-signing/pass)
+          echo "::add-mask::$KS_PASS"
+          SIGNER="$(ls -d $ANDROID_HOME/build-tools/*/ | sort -V | tail -1)apksigner"
+          for apk in build/app/outputs/flutter-apk/*-release.apk; do
+            if ! "$SIGNER" sign --ks "$KS" --ks-key-alias app --ks-pass "pass:$KS_PASS" --key-pass "pass:$KS_PASS" "$apk" 2>&1 | tee sign.log; then
+              echo "::error title=sign::$(tail -5 sign.log | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"} {print}')"
+              exit 1
+            fi
+            "$SIGNER" verify "$apk"
+          done
+          ls -la build/app/outputs/flutter-apk/*-release.apk
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: D. Face Lab build ${{ github.run_number }}
+          files: build/app/outputs/flutter-apk/*-release.apk
+          body: |
+            Scarica **app-arm64-v8a-release.apk** (va bene per quasi tutti i telefoni Android recenti).
+            Per telefoni molto vecchi usa app-armeabi-v7a-release.apk.

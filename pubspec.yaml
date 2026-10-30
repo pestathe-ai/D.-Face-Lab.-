@@ -1,0 +1,25 @@
+name: d_face_lab
+description: "D. Face Lab: scambio volti in foto e video, direttamente sul telefono."
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.5.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_onnxruntime: ^1.9.0
+  ffmpeg_kit_flutter_new: ^4.6.7
+  image: ^4.5.0
+  image_picker: ^1.2.0
+  gal: ^2.3.0
+  path_provider: ^2.1.5
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
